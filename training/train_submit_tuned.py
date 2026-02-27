@@ -53,7 +53,6 @@ RANDOM_SEED = 42
 def matlab2datetime(matlab_datenum):
     return datetime.fromordinal(int(matlab_datenum)) + timedelta(days=float(matlab_datenum) % 1) - timedelta(days=366)
 
-
 def load_mat_hourly(mat_path):
     mat = loadmat(mat_path)
     lat = mat["lattg"].flatten()
@@ -86,9 +85,11 @@ def load_mat_hourly(mat_path):
         df["sea_level"] = df["sea_level"].fillna(df["sea_level"].median())
     return df
 
-
 def _try_extract_thresholds_from_mat(thr_mat_path):
-    """Best-effort parser for threshold MAT (variable names unknown)."""
+    """
+    Best-effort parser for Seed_Coastal_Stations_Thresholds.mat (variable names unknown).
+    Returns dict station_name -> threshold_float
+    """
     if not os.path.exists(thr_mat_path):
         return {}
 
@@ -114,9 +115,11 @@ def _try_extract_thresholds_from_mat(thr_mat_path):
         for x in flat:
             try:
                 if isinstance(x, np.ndarray):
+                    # common: array(['ABC'], dtype='<U3') or char array
                     if x.dtype.kind in ("U", "S"):
                         out.append(str(x.squeeze()))
                     else:
+                        # maybe char codes
                         try:
                             out.append("".join([chr(int(c)) for c in x.squeeze()]))
                         except Exception:
@@ -145,7 +148,6 @@ def _try_extract_thresholds_from_mat(thr_mat_path):
             if len(thrs) == len(st_names) and len(thrs) > 0:
                 return {st_names[i]: float(thrs[i]) for i in range(len(st_names))}
     return {}
-
 
 def hourly_to_daily(df_hourly):
     df = df_hourly.copy()
@@ -213,7 +215,6 @@ def hourly_to_daily(df_hourly):
     daily.reset_index(drop=True, inplace=True)
     return daily
 
-
 def add_station_onehot(daily, station_names):
     st_to_idx = {s: i for i, s in enumerate(station_names)}
     idx = daily["station_name"].map(st_to_idx).fillna(-1).astype(int).values
@@ -221,7 +222,6 @@ def add_station_onehot(daily, station_names):
     ok = idx >= 0
     ohe[np.where(ok)[0], idx[ok]] = 1.0
     return ohe
-
 
 def build_windows_and_labels(daily, hist_days, future_days, threshold_map=None):
     if threshold_map is None:
@@ -318,7 +318,6 @@ def build_windows_and_labels(daily, hist_days, future_days, threshold_map=None):
     meta_df = pd.DataFrame(meta_list, columns=["station", "hist_start", "future_start"])
     return X, y, meta_df, per_day_feats, station_names
 
-
 def time_split_by_station(meta_df, val_frac=0.15):
     meta_df = meta_df.copy()
     meta_df["future_start_dt"] = pd.to_datetime(meta_df["future_start"])
@@ -333,7 +332,6 @@ def time_split_by_station(meta_df, val_frac=0.15):
 
     is_tr = ~is_val
     return is_tr, is_val
-
 
 def f1_acc_mcc(y_true, y_prob, thr=0.5):
     y_pred = (y_prob >= thr).astype(int)
@@ -357,7 +355,6 @@ def f1_acc_mcc(y_true, y_prob, thr=0.5):
 
     return float(f1), float(acc), float(mcc)
 
-
 def best_threshold_for_f1(y_true, y_prob):
     best_thr = 0.5
     best_f1 = -1.0
@@ -370,15 +367,12 @@ def best_threshold_for_f1(y_true, y_prob):
             best_acc = acc
     return best_thr, float(best_f1), float(best_acc)
 
-
 def logit(p):
     p = np.clip(p, 1e-6, 1 - 1e-6)
     return np.log(p / (1.0 - p))
 
-
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
-
 
 def booster_to_json_str(bst):
     # robust serialization
@@ -409,21 +403,22 @@ def booster_to_json_str(bst):
 def _loguniform(rng, low, high):
     return float(np.exp(rng.uniform(np.log(low), np.log(high))))
 
-
 def sample_params(rng):
-    """Parameter space tuned for tabular time-window classification."""
+    """
+    Parameter space tuned for tabular time-window classification.
+    """
     p = {}
-    p["max_depth"] = int(rng.integers(3, 10))
-    p["min_child_weight"] = _loguniform(rng, 1.0, 30.0)
-    p["subsample"] = float(rng.uniform(0.65, 1.0))
-    p["colsample_bytree"] = float(rng.uniform(0.65, 1.0))
-    p["eta"] = _loguniform(rng, 0.01, 0.10)
-    p["gamma"] = float(rng.uniform(0.0, 2.0))
-    p["reg_lambda"] = _loguniform(rng, 0.5, 20.0)
-    p["reg_alpha"] = _loguniform(rng, 1e-6, 2.0)
-    p["max_delta_step"] = float(rng.uniform(0.0, 5.0))
+    p["max_depth"] = int(rng.integers(3, 10))                 # 3..9
+    p["min_child_weight"] = _loguniform(rng, 1.0, 30.0)      # 1..30
+    p["subsample"] = float(rng.uniform(0.65, 1.0))           # 0.65..1.0
+    p["colsample_bytree"] = float(rng.uniform(0.65, 1.0))    # 0.65..1.0
+    p["eta"] = _loguniform(rng, 0.01, 0.10)                  # 0.01..0.1
+    p["gamma"] = float(rng.uniform(0.0, 2.0))                # 0..2
+    p["reg_lambda"] = _loguniform(rng, 0.5, 20.0)            # 0.5..20
+    p["reg_alpha"] = _loguniform(rng, 1e-6, 2.0)             # ~0..2 (log)
+    # stabilizer for imbalanced / noisy gradients
+    p["max_delta_step"] = float(rng.uniform(0.0, 5.0))       # 0..5
     return p
-
 
 def train_one_trial(X_tr, y_tr, X_va, y_va, seed, use_gpu):
     dtr = xgb.DMatrix(X_tr, label=y_tr)
@@ -435,6 +430,7 @@ def train_one_trial(X_tr, y_tr, X_va, y_va, seed, use_gpu):
 
     tree_method = "gpu_hist" if use_gpu else "hist"
 
+    # sample candidate params
     rng = np.random.default_rng(seed)
     hp = sample_params(rng)
 
@@ -446,10 +442,12 @@ def train_one_trial(X_tr, y_tr, X_va, y_va, seed, use_gpu):
         "verbosity": 0,
         "nthread": -1,
         "scale_pos_weight": spw,
+        # practical stabilizers
         "max_bin": 256,
     }
     params.update(hp)
 
+    # training control
     num_boost_round = 15000
     early_stopping_rounds = 350
 
@@ -468,6 +466,8 @@ def train_one_trial(X_tr, y_tr, X_va, y_va, seed, use_gpu):
     f1_05, acc_05, mcc_05 = f1_acc_mcc(y_va, p_va, 0.5)
     thr_best, f1_best, acc_best = best_threshold_for_f1(y_va, p_va)
 
+    # composite objective: prioritize F1, keep accuracy meaningful
+    # (weights can be adjusted; this tends to preserve accuracy while pushing F1)
     score = float(f1_best + 0.03 * acc_best)
 
     return {
@@ -481,11 +481,14 @@ def train_one_trial(X_tr, y_tr, X_va, y_va, seed, use_gpu):
         "f1_05": f1_05,
         "acc_05": acc_05,
         "mcc_05": mcc_05,
-        "p_va": p_va,
+        "p_va": p_va,  # keep for ensemble threshold calibration
     }
 
-
 def retrain_fixed_rounds(params, X_full, y_full, num_boost_round, use_gpu, seed):
+    """
+    Retrain on ALL data with fixed num_boost_round (from best_iter).
+    This often gives a small bump vs keeping train/val-only model.
+    """
     dtr = xgb.DMatrix(X_full, label=y_full)
 
     pos = max(1, int((y_full == 1).sum()))
@@ -510,7 +513,6 @@ def retrain_fixed_rounds(params, X_full, y_full, num_boost_round, use_gpu, seed)
     )
     return bst
 
-
 def main(args):
     if not HAS_XGB:
         raise RuntimeError("xgboost is required. Install in your env: pip install xgboost")
@@ -518,6 +520,7 @@ def main(args):
     t0 = time.time()
     os.makedirs(args.out_dir, exist_ok=True)
 
+    # Load hourly
     if args.train_csv and os.path.exists(args.train_csv):
         print("[train] Loading CSV:", args.train_csv, flush=True)
         df_hourly = pd.read_csv(args.train_csv, parse_dates=["time"])
@@ -525,6 +528,7 @@ def main(args):
         print("[train] Loading MAT:", args.mat, flush=True)
         df_hourly = load_mat_hourly(args.mat)
 
+    # Load official thresholds if possible
     thr_map = {}
     if args.threshold_mat and os.path.exists(args.threshold_mat):
         thr_map = _try_extract_thresholds_from_mat(args.threshold_mat)
@@ -532,6 +536,7 @@ def main(args):
     else:
         print("[train] No threshold_mat found/used; fallback thr = mean+1.5*std", flush=True)
 
+    # Daily + windows
     print("[train] Building daily features...", flush=True)
     daily = hourly_to_daily(df_hourly)
 
@@ -549,11 +554,13 @@ def main(args):
     neg = int((y == 0).sum())
     print(f"[train] X={X.shape} pos={pos} neg={neg} pos_rate={pos/max(1,len(y)):.4f}", flush=True)
 
+    # Time split
     is_tr, is_va = time_split_by_station(meta, val_frac=args.val_frac)
     X_tr, y_tr = X[is_tr], y[is_tr]
     X_va, y_va = X[is_va], y[is_va]
     print(f"[train] Split: train={len(y_tr)} val={len(y_va)}", flush=True)
 
+    # Random search
     trials = int(args.trials)
     keep = int(args.keep)
     rng = np.random.default_rng(int(args.seed))
@@ -561,11 +568,13 @@ def main(args):
     print(f"[train] Random search trials={trials} keep={keep} use_gpu={args.use_gpu}", flush=True)
 
     best_list = []
+    start = time.time()
     for t in range(trials):
         seed = int(args.seed + 1000 + t * 17 + int(rng.integers(0, 100000)))
         res = train_one_trial(X_tr, y_tr, X_va, y_va, seed=seed, use_gpu=args.use_gpu)
 
         best_list.append(res)
+        # keep only top few in memory
         best_list.sort(key=lambda r: r["score"], reverse=True)
         best_list = best_list[: max(keep * 3, keep + 5)]
 
@@ -579,16 +588,19 @@ def main(args):
                 flush=True,
             )
 
+    # Final selection
     best_list.sort(key=lambda r: r["score"], reverse=True)
     selected = best_list[:keep]
     print("[train] Selected top-K (bestF1):", [round(r["f1_best"], 4) for r in selected], flush=True)
 
+    # Ensemble on VAL (from selected trial models)
     p_mat = np.column_stack([r["p_va"] for r in selected])
     p_ens = np.mean(p_mat, axis=1)
 
     f1_05, acc_05, mcc_05 = f1_acc_mcc(y_va, p_ens, 0.5)
     thr_best, f1_best, acc_best = best_threshold_for_f1(y_va, p_ens)
 
+    # Calibration-shift: move logits so that thr_best becomes 0.5
     calib_bias = float(-logit(thr_best))
     p_adj = sigmoid(logit(p_ens) + calib_bias)
     f1_adj, acc_adj, mcc_adj = f1_acc_mcc(y_va, p_adj, 0.5)
@@ -597,6 +609,8 @@ def main(args):
     print(f"[train] Ensemble best_thr={thr_best:.3f} bestF1={f1_best:.4f} (acc@bestThr={acc_best:.4f})", flush=True)
     print(f"[train] Ensemble CAL @0.5:   F1={f1_adj:.4f} Acc={acc_adj:.4f} MCC={mcc_adj:.4f}", flush=True)
 
+    # Retrain each selected config on FULL data (train+val)
+    # Use its own best_iter as fixed rounds (common trick for small gain)
     print("[train] Retraining selected models on FULL data (fixed rounds)...", flush=True)
     X_full = X
     y_full = y
@@ -605,6 +619,7 @@ def main(args):
     final_rounds = []
     for i, r in enumerate(selected):
         rounds = int(max(50, r["best_iter"]))
+        # slight extension to exploit more data (safe)
         rounds = int(rounds * 1.05)
 
         seed = int(args.seed + 9999 + i * 101)
